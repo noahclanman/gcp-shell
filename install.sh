@@ -1,700 +1,427 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-IMAGE="noahclanman/gcp:latest"
-CONTAINER="umbra"
-HOST_PORT="8080"
-CONTAINER_PORT="8080"
-MENU_BIN="/usr/local/bin/umbra"
+IMAGE_DEFAULT="docker.io/noahclanman/gcp:latest"
+SERVICE_DEFAULT="umbra"
+REGION_DEFAULT="us-central1"
+
+CONFIG_DIR="${HOME}/.config/umbra"
+CONFIG_FILE="${CONFIG_DIR}/cloudrun.env"
+BIN_DIR="${HOME}/.local/bin"
+BIN_FILE="${BIN_DIR}/umbra"
 
 line() {
-    printf '%*s\n' 66 '' | tr ' ' '='
-}
-
-info() {
-    echo "[INFO] $*"
+  printf '%*s\n' 68 '' | tr ' ' '='
 }
 
 die() {
-    echo "[ERROR] $*" >&2
-    exit 1
+  echo "[ERROR] $*" >&2
+  exit 1
 }
 
-# =========================================================
-# CHECK DOCKER
-# =========================================================
+prompt_tty() {
+  local prompt="$1"
+  local default="$2"
+  local answer=""
 
-if ! command -v docker >/dev/null 2>&1; then
-    die "Docker is not installed."
+  if [ -r /dev/tty ]; then
+    read -r -p "$prompt [$default]: " answer < /dev/tty || true
+  fi
+
+  printf '%s' "${answer:-$default}"
+}
+
+command -v gcloud >/dev/null 2>&1 || die "gcloud is not installed. Run this from Google Cloud Shell / Skills Boost Cloud Shell."
+
+ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n1 || true)"
+[ -n "$ACCOUNT" ] || die "No active Google Cloud account. Authenticate gcloud first."
+
+PROJECT_ID="$(gcloud config get-value project 2>/dev/null || true)"
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "(unset)" ]; then
+  PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
+fi
+[ -n "$PROJECT_ID" ] || die "No active Google Cloud project. Select your Skills Boost / GCP project first."
+
+SERVICE_NAME="${SERVICE_NAME:-$(prompt_tty "Cloud Run service name" "$SERVICE_DEFAULT")}"
+REGION="${REGION:-$(prompt_tty "Cloud Run region" "$REGION_DEFAULT")}"
+IMAGE="${IMAGE:-$IMAGE_DEFAULT}"
+
+if ! [[ "$SERVICE_NAME" =~ ^[a-z]([a-z0-9-]{0,47}[a-z0-9])?$ ]]; then
+  die "Invalid service name. Use lowercase letters, numbers and hyphens; start with a letter; max 49 characters."
 fi
 
-if ! docker info >/dev/null 2>&1; then
-    die "Docker daemon is not running or your user cannot access Docker."
+if ! [[ "$REGION" =~ ^[a-z0-9-]+$ ]]; then
+  die "Invalid region: $REGION"
 fi
 
-line
-echo "                    UMBRA INSTALLER"
-line
+mkdir -p "$CONFIG_DIR" "$BIN_DIR"
 
-# =========================================================
-# PULL IMAGE FIRST
-# =========================================================
+cat > "$CONFIG_FILE" <<EOF
+PROJECT_ID='$PROJECT_ID'
+SERVICE_NAME='$SERVICE_NAME'
+REGION='$REGION'
+IMAGE='$IMAGE'
+EOF
 
-info "Pulling latest Umbra image..."
-
-docker pull "$IMAGE"
-
-# Only remove the old container AFTER a successful pull.
-if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-    info "Removing old Umbra container..."
-    docker rm -f "$CONTAINER" >/dev/null
-fi
-
-# =========================================================
-# START UMBRA
-# =========================================================
-
-info "Starting Umbra..."
-
-docker run -d \
-    --name "$CONTAINER" \
-    --restart unless-stopped \
-    -p "${HOST_PORT}:${CONTAINER_PORT}" \
-    "$IMAGE" >/dev/null
-
-sleep 3
-
-if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-    echo
-    echo "Umbra failed to start."
-    echo
-    docker logs "$CONTAINER" 2>&1 || true
-    exit 1
-fi
-
-# =========================================================
-# CREATE UMBRA DASHBOARD COMMAND
-# =========================================================
-
-TMP_MENU="$(mktemp)"
-trap 'rm -f "$TMP_MENU"' EXIT
-
-cat > "$TMP_MENU" <<'UMBRA_MENU'
+cat > "$BIN_FILE" <<'UMBRA_MANAGER'
 #!/usr/bin/env bash
-set -u
+set -Eeuo pipefail
 
-IMAGE="noahclanman/gcp:latest"
-CONTAINER="umbra"
-HOST_PORT="8080"
-CONTAINER_PORT="8080"
+CONFIG_FILE="${HOME}/.config/umbra/cloudrun.env"
+
+[ -f "$CONFIG_FILE" ] || {
+  echo "[ERROR] Umbra config not found: $CONFIG_FILE" >&2
+  exit 1
+}
+
+# shellcheck disable=SC1090
+source "$CONFIG_FILE"
+
+PORT="8080"
+MEMORY="512Mi"
+CPU="1"
+CONCURRENCY="500"
+MAX_INSTANCES="16"
+TIMEOUT="3600"
 
 line() {
-    printf '%*s\n' 68 '' | tr ' ' '='
-}
-
-docker_ok() {
-    command -v docker >/dev/null 2>&1 &&
-    docker info >/dev/null 2>&1
-}
-
-container_exists() {
-    docker ps -a --format '{{.Names}}' 2>/dev/null |
-        grep -qx "$CONTAINER"
-}
-
-container_running() {
-    docker ps --format '{{.Names}}' 2>/dev/null |
-        grep -qx "$CONTAINER"
-}
-
-get_public_ip() {
-    local ip=""
-
-    if command -v curl >/dev/null 2>&1; then
-        ip="$(curl -4 -fsS --max-time 4 https://api.ipify.org 2>/dev/null || true)"
-    elif command -v wget >/dev/null 2>&1; then
-        ip="$(wget -qO- -T 4 https://api.ipify.org 2>/dev/null || true)"
-    fi
-
-    echo "$ip"
-}
-
-get_local_ip() {
-    hostname -I 2>/dev/null | awk '{print $1}'
-}
-
-get_os() {
-    if [ -r /etc/os-release ]; then
-        . /etc/os-release
-        echo "${PRETTY_NAME:-Linux}"
-    else
-        uname -s
-    fi
-}
-
-get_cpu_model() {
-    awk -F: '
-        /model name/ {
-            gsub(/^[ \t]+/, "", $2)
-            print $2
-            exit
-        }
-    ' /proc/cpuinfo 2>/dev/null
-}
-
-get_cpu_count() {
-    getconf _NPROCESSORS_ONLN 2>/dev/null ||
-    nproc 2>/dev/null ||
-    echo "?"
-}
-
-get_memory_total() {
-    free -h 2>/dev/null | awk '/^Mem:/ {print $2}'
-}
-
-get_memory_used() {
-    free -h 2>/dev/null | awk '/^Mem:/ {print $3}'
-}
-
-get_disk_total() {
-    df -h / 2>/dev/null | awk 'NR==2 {print $2}'
-}
-
-get_disk_used() {
-    df -h / 2>/dev/null | awk 'NR==2 {print $3}'
-}
-
-get_disk_percent() {
-    df -h / 2>/dev/null | awk 'NR==2 {print $5}'
-}
-
-get_uptime() {
-    uptime -p 2>/dev/null ||
-    uptime 2>/dev/null ||
-    echo "Unknown"
-}
-
-get_load() {
-    awk '{print $1", "$2", "$3}' /proc/loadavg 2>/dev/null ||
-    echo "-"
+  printf '%*s\n' 72 '' | tr ' ' '='
 }
 
 pause_menu() {
-    echo
-    read -r -p "Press Enter to continue..."
+  echo
+  read -r -p "Press Enter to continue..." < /dev/tty || true
+}
+
+service_exists() {
+  gcloud run services describe "$SERVICE_NAME" \
+    --project "$PROJECT_ID" \
+    --region "$REGION" \
+    >/dev/null 2>&1
+}
+
+service_url() {
+  gcloud run services describe "$SERVICE_NAME" \
+    --project "$PROJECT_ID" \
+    --region "$REGION" \
+    --format='value(status.url)' 2>/dev/null
+}
+
+latest_revision() {
+  gcloud run services describe "$SERVICE_NAME" \
+    --project "$PROJECT_ID" \
+    --region "$REGION" \
+    --format='value(status.latestReadyRevisionName)' 2>/dev/null
+}
+
+deploy() {
+  line
+  echo "                    UMBRA CLOUD RUN DEPLOY"
+  line
+  echo "Project : $PROJECT_ID"
+  echo "Region  : $REGION"
+  echo "Service : $SERVICE_NAME"
+  echo "Image   : $IMAGE"
+  echo
+  echo "Deploying..."
+  echo
+
+  gcloud services enable run.googleapis.com \
+    --project "$PROJECT_ID" \
+    --quiet
+
+  gcloud run deploy "$SERVICE_NAME" \
+    --project "$PROJECT_ID" \
+    --region "$REGION" \
+    --image "$IMAGE" \
+    --port "$PORT" \
+    --allow-unauthenticated \
+    --execution-environment gen2 \
+    --cpu "$CPU" \
+    --memory "$MEMORY" \
+    --concurrency "$CONCURRENCY" \
+    --max-instances "$MAX_INSTANCES" \
+    --min-instances 0 \
+    --timeout "$TIMEOUT" \
+    --use-http2 \
+    --cpu-boost \
+    --ingress all \
+    --quiet
+
+  echo
+  dashboard
 }
 
 dashboard() {
+  clear 2>/dev/null || true
 
-    local status="-"
-    local image="-"
-    local started="-"
-    local ports="-"
-    local health="-"
+  line
+  echo "                       UMBRA CLOUD RUN"
+  line
 
-    local public_ip
-    local local_ip
-
-    public_ip="$(get_public_ip)"
-    local_ip="$(get_local_ip)"
-
-    [ -n "$public_ip" ] || public_ip="Unavailable"
-    [ -n "$local_ip" ] || local_ip="Unavailable"
-
-    if container_exists; then
-
-        status="$(
-            docker inspect \
-                -f '{{.State.Status}}' \
-                "$CONTAINER" 2>/dev/null ||
-            echo "Unknown"
-        )"
-
-        image="$(
-            docker inspect \
-                -f '{{.Config.Image}}' \
-                "$CONTAINER" 2>/dev/null ||
-            echo "-"
-        )"
-
-        started="$(
-            docker inspect \
-                -f '{{.State.StartedAt}}' \
-                "$CONTAINER" 2>/dev/null |
-            cut -d. -f1 |
-            tr 'T' ' '
-        )"
-
-        ports="$(
-            docker port "$CONTAINER" 2>/dev/null |
-            paste -sd ',' - ||
-            true
-        )"
-
-        [ -n "$ports" ] || ports="-"
-
-        if container_running; then
-            health="ONLINE"
-        else
-            health="OFFLINE"
-        fi
-    fi
-
-    clear 2>/dev/null || true
-
-    line
-    echo "                       UMBRA DASHBOARD"
-    line
-
-    printf " %-20s %s\n" "OS:" "$(get_os)"
-    printf " %-20s %s\n" "Kernel:" "$(uname -r)"
-    printf " %-20s %s\n" "Architecture:" "$(uname -m)"
-    printf " %-20s %s vCPU\n" "CPU:" "$(get_cpu_count)"
-
-    CPU_MODEL="$(get_cpu_model)"
-    if [ -n "$CPU_MODEL" ]; then
-        printf " %-20s %s\n" "CPU Model:" "$CPU_MODEL"
-    fi
-
-    printf " %-20s %s / %s\n" \
-        "Memory:" \
-        "$(get_memory_used)" \
-        "$(get_memory_total)"
-
-    printf " %-20s %s / %s (%s)\n" \
-        "Disk:" \
-        "$(get_disk_used)" \
-        "$(get_disk_total)" \
-        "$(get_disk_percent)"
-
-    printf " %-20s %s\n" "Load Average:" "$(get_load)"
-    printf " %-20s %s\n" "Uptime:" "$(get_uptime)"
-
+  if ! service_exists; then
+    echo
+    echo "Status: NOT DEPLOYED"
+    echo
+    echo "Project: $PROJECT_ID"
+    echo "Region : $REGION"
+    echo "Service: $SERVICE_NAME"
+    echo "Image  : $IMAGE"
     echo
     line
-    echo "                       NETWORK"
-    line
+    return
+  fi
 
-    printf " %-20s %s\n" "Public IP:" "$public_ip"
-    printf " %-20s %s\n" "Local IP:" "$local_ip"
+  local url revision
+  url="$(service_url)"
+  revision="$(latest_revision)"
 
-    echo
-    line
-    echo "                       UMBRA SERVICE"
-    line
+  echo
+  printf " %-20s %s\n" "Project:" "$PROJECT_ID"
+  printf " %-20s %s\n" "Region:" "$REGION"
+  printf " %-20s %s\n" "Service:" "$SERVICE_NAME"
+  printf " %-20s %s\n" "Revision:" "${revision:-unknown}"
 
-    printf " %-20s %s\n" "Status:" "$health"
-    printf " %-20s %s\n" "Container:" "$CONTAINER"
-    printf " %-20s %s\n" "Docker State:" "$status"
-    printf " %-20s %s\n" "Image:" "$image"
-    printf " %-20s %s\n" "Started:" "$started"
-    printf " %-20s %s\n" "Ports:" "$ports"
+  echo
+  line
+  echo "                         CONTAINER"
+  line
+  printf " %-20s %s\n" "Image:" "$IMAGE"
+  printf " %-20s %s\n" "Port:" "$PORT"
+  printf " %-20s %s\n" "Memory:" "$MEMORY"
+  printf " %-20s %s\n" "CPU:" "$CPU"
 
-    echo
-    line
-    echo "                       UMBRA ACCESS"
-    line
+  echo
+  line
+  echo "                         CLOUD RUN"
+  line
+  printf " %-20s %s\n" "Concurrency:" "$CONCURRENCY"
+  printf " %-20s %s\n" "Max Instances:" "$MAX_INSTANCES"
+  printf " %-20s %s\n" "Min Instances:" "0"
+  printf " %-20s %ss\n" "Timeout:" "$TIMEOUT"
+  printf " %-20s %s\n" "Execution Env:" "Second Generation"
+  printf " %-20s %s\n" "HTTP/2:" "Enabled"
+  printf " %-20s %s\n" "Public Access:" "Enabled"
+  printf " %-20s %s\n" "CPU Boost:" "Enabled"
 
-    printf " %-20s http://%s:%s/sub/shinu\n" \
-        "Subscription:" \
-        "$public_ip" \
-        "$HOST_PORT"
+  echo
+  line
+  echo "                         PROTOCOLS"
+  line
+  printf " %-20s %s\n" "VLESS XHTTP:" "ON"
+  printf " %-20s %s\n" "VLESS WebSocket:" "ON"
+  printf " %-20s %s\n" "VLESS gRPC:" "ON"
+  printf " %-20s %s\n" "Trojan WebSocket:" "ON"
+  printf " %-20s %s\n" "VMess WebSocket:" "ON"
 
-    printf " %-20s http://%s:%s/sub/shinu/plain\n" \
-        "Plain:" \
-        "$public_ip" \
-        "$HOST_PORT"
-
-    line
+  echo
+  line
+  echo "                          ACCESS"
+  line
+  printf " %-20s %s\n" "Cloud Run URL:" "$url"
+  printf " %-20s %s/sub/shinu\n" "Subscription:" "$url"
+  printf " %-20s %s/sub/shinu/plain\n" "Plain Sub:" "$url"
+  line
 }
 
-show_links() {
+links() {
+  if ! service_exists; then
+    echo "Umbra is not deployed."
+    return 1
+  fi
 
-    local ip
+  local url
+  url="$(service_url)"
 
-    ip="$(get_public_ip)"
-
-    if [ -z "$ip" ]; then
-        ip="$(get_local_ip)"
-    fi
-
-    if [ -z "$ip" ]; then
-        ip="YOUR_SERVER_IP"
-    fi
-
-    clear 2>/dev/null || true
-
-    line
-    echo "                      UMBRA LINKS"
-    line
-
-    echo
-    echo "Subscription:"
-    echo
-    echo "http://${ip}:${HOST_PORT}/sub/shinu"
-
-    echo
-    echo "Plain Subscription:"
-    echo
-    echo "http://${ip}:${HOST_PORT}/sub/shinu/plain"
-
-    echo
-    echo "Inbound Paths:"
-    echo
-
-    echo "VLESS XHTTP"
-    echo "  /vless/xhttp/shinu"
-
-    echo
-    echo "VLESS WebSocket"
-    echo "  /vless/ws/shinu"
-
-    echo
-    echo "VLESS gRPC"
-    echo "  vless/grpc/shinu"
-
-    echo
-    echo "Trojan WebSocket"
-    echo "  /trojan/ws/shinu"
-
-    echo
-    echo "VMess WebSocket"
-    echo "  /vmess/ws/shinu"
-
-    echo
-    line
+  clear 2>/dev/null || true
+  line
+  echo "                       UMBRA LINKS"
+  line
+  echo
+  echo "Cloud Run URL:"
+  echo "  $url"
+  echo
+  echo "Subscription:"
+  echo "  $url/sub/shinu"
+  echo
+  echo "Plain Subscription:"
+  echo "  $url/sub/shinu/plain"
+  echo
+  echo "Inbounds:"
+  echo "  VLESS XHTTP      /vless/xhttp/shinu"
+  echo "  VLESS WebSocket  /vless/ws/shinu"
+  echo "  VLESS gRPC       serviceName: vless/grpc/shinu"
+  echo "  Trojan WebSocket /trojan/ws/shinu"
+  echo "  VMess WebSocket  /vmess/ws/shinu"
+  echo
+  line
 }
 
-show_container_stats() {
+logs() {
+  if ! service_exists; then
+    echo "Umbra is not deployed."
+    return 1
+  fi
 
-    if ! container_running; then
-        echo "Umbra is not running."
-        return
-    fi
-
-    docker stats \
-        --no-stream \
-        --format \
-'Container: {{.Name}}
-CPU:       {{.CPUPerc}}
-Memory:    {{.MemUsage}}
-Memory %:  {{.MemPerc}}
-Network:   {{.NetIO}}
-Block IO:  {{.BlockIO}}
-PIDs:      {{.PIDs}}' \
-        "$CONTAINER"
+  gcloud run services logs read "$SERVICE_NAME" \
+    --project "$PROJECT_ID" \
+    --region "$REGION" \
+    --limit=50
 }
 
-restart_umbra() {
-
-    if container_exists; then
-
-        echo "Restarting Umbra..."
-
-        docker restart "$CONTAINER" >/dev/null
-
-        echo "Umbra restarted successfully."
-
-    else
-        echo "Umbra container does not exist."
-    fi
+save_config() {
+  cat > "$CONFIG_FILE" <<EOF
+PROJECT_ID='$PROJECT_ID'
+SERVICE_NAME='$SERVICE_NAME'
+REGION='$REGION'
+IMAGE='$IMAGE'
+EOF
 }
 
-stop_umbra() {
+change_service() {
+  local value=""
+  read -r -p "New Cloud Run service name [$SERVICE_NAME]: " value < /dev/tty || true
+  [ -n "$value" ] || return 0
 
-    if container_running; then
+  if ! [[ "$value" =~ ^[a-z]([a-z0-9-]{0,47}[a-z0-9])?$ ]]; then
+    echo "Invalid service name."
+    return 1
+  fi
 
-        echo "Stopping Umbra..."
-
-        docker stop "$CONTAINER"
-
-    else
-        echo "Umbra is already stopped."
-    fi
+  SERVICE_NAME="$value"
+  save_config
+  echo "Service changed to: $SERVICE_NAME"
 }
 
-start_umbra() {
+change_region() {
+  local value=""
+  read -r -p "New Cloud Run region [$REGION]: " value < /dev/tty || true
+  [ -n "$value" ] || return 0
 
-    if container_exists; then
+  if ! [[ "$value" =~ ^[a-z0-9-]+$ ]]; then
+    echo "Invalid region."
+    return 1
+  fi
 
-        echo "Starting Umbra..."
-
-        docker start "$CONTAINER"
-
-    else
-        echo "Umbra container does not exist."
-        echo "Run the installer again."
-    fi
+  REGION="$value"
+  save_config
+  echo "Region changed to: $REGION"
 }
 
-update_umbra() {
+delete_service() {
+  if ! service_exists; then
+    echo "Umbra is not deployed."
+    return 0
+  fi
 
-    echo
-    echo "Pulling latest Umbra image..."
+  local answer=""
+  read -r -p "Delete Cloud Run service '$SERVICE_NAME' in '$REGION'? [y/N]: " answer < /dev/tty || true
 
-    if ! docker pull "$IMAGE"; then
-        echo
-        echo "Image pull failed."
-        echo "Existing Umbra container was NOT removed."
-        return 1
-    fi
-
-    echo
-    echo "Image downloaded successfully."
-
-    if container_exists; then
-        echo "Removing old container..."
-        docker rm -f "$CONTAINER" >/dev/null
-    fi
-
-    echo "Starting latest Umbra..."
-
-    docker run -d \
-        --name "$CONTAINER" \
-        --restart unless-stopped \
-        -p "${HOST_PORT}:${CONTAINER_PORT}" \
-        "$IMAGE" >/dev/null
-
-    sleep 3
-
-    if container_running; then
-        echo
-        echo "Umbra updated successfully."
-    else
-        echo
-        echo "Umbra failed to start."
-        docker logs "$CONTAINER" 2>&1 || true
-        return 1
-    fi
-}
-
-remove_umbra() {
-
-    if ! container_exists; then
-        echo "Umbra container does not exist."
-        return
-    fi
-
-    echo
-    read -r -p "Remove Umbra container? [y/N]: " confirm
-
-    case "$confirm" in
-
-        y|Y|yes|YES)
-
-            docker rm -f "$CONTAINER"
-
-            echo
-            echo "Umbra container removed."
-            ;;
-
-        *)
-            echo "Cancelled."
-            ;;
-
-    esac
-}
-
-show_logs() {
-
-    if container_exists; then
-
-        echo
-        echo "Press CTRL+C to leave logs."
-        echo
-
-        docker logs -f "$CONTAINER" || true
-
-    else
-        echo "Umbra container does not exist."
-    fi
+  case "$answer" in
+    y|Y|yes|YES)
+      gcloud run services delete "$SERVICE_NAME" \
+        --project "$PROJECT_ID" \
+        --region "$REGION" \
+        --quiet
+      echo "Service deleted."
+      ;;
+    *)
+      echo "Cancelled."
+      ;;
+  esac
 }
 
 menu() {
+  while true; do
+    dashboard
+    echo
+    echo " [1] Refresh dashboard"
+    echo " [2] Show subscription / inbounds"
+    echo " [3] Show Cloud Run logs"
+    echo " [4] Redeploy latest Docker image"
+    echo " [5] Change service name"
+    echo " [6] Change region"
+    echo " [7] Delete Cloud Run service"
+    echo " [0] Exit"
+    echo
 
-    if ! docker_ok; then
-        echo "Docker is not available."
-        exit 1
-    fi
+    local choice=""
+    read -r -p " Select option: " choice < /dev/tty || true
 
-    while true; do
-
-        dashboard
-
-        echo
-        echo " [1] Refresh dashboard"
-        echo " [2] Subscription / inbound paths"
-        echo " [3] Container resource usage"
-        echo " [4] View live logs"
-        echo " [5] Restart Umbra"
-        echo " [6] Update Umbra"
-        echo " [7] Stop Umbra"
-        echo " [8] Start Umbra"
-        echo " [9] Remove Umbra container"
-        echo " [0] Exit"
-        echo
-
-        read -r -p " Select option: " choice
-
-        case "$choice" in
-
-            1)
-                ;;
-
-            2)
-                show_links
-                pause_menu
-                ;;
-
-            3)
-                clear 2>/dev/null || true
-                line
-                echo "                 UMBRA RESOURCE USAGE"
-                line
-                echo
-                show_container_stats
-                pause_menu
-                ;;
-
-            4)
-                show_logs
-                pause_menu
-                ;;
-
-            5)
-                restart_umbra
-                sleep 2
-                ;;
-
-            6)
-                update_umbra
-                pause_menu
-                ;;
-
-            7)
-                stop_umbra
-                sleep 2
-                ;;
-
-            8)
-                start_umbra
-                sleep 2
-                ;;
-
-            9)
-                remove_umbra
-                pause_menu
-                ;;
-
-            0)
-                clear 2>/dev/null || true
-                exit 0
-                ;;
-
-            *)
-                echo "Invalid option."
-                sleep 1
-                ;;
-
-        esac
-    done
+    case "$choice" in
+      1) ;;
+      2) links; pause_menu ;;
+      3) clear 2>/dev/null || true; logs; pause_menu ;;
+      4) clear 2>/dev/null || true; deploy; pause_menu ;;
+      5) change_service; pause_menu ;;
+      6) change_region; pause_menu ;;
+      7) delete_service; pause_menu ;;
+      0) clear 2>/dev/null || true; exit 0 ;;
+      *) echo "Invalid option."; sleep 1 ;;
+    esac
+  done
 }
 
 case "${1:-}" in
-
-    status|dashboard)
-        dashboard
-        ;;
-
-    links|sub)
-        show_links
-        ;;
-
-    stats)
-        show_container_stats
-        ;;
-
-    logs)
-        show_logs
-        ;;
-
-    restart)
-        restart_umbra
-        ;;
-
-    update)
-        update_umbra
-        ;;
-
-    stop)
-        stop_umbra
-        ;;
-
-    start)
-        start_umbra
-        ;;
-
-    *)
-        menu
-        ;;
-
+  deploy|update|redeploy)
+    deploy
+    ;;
+  status|dashboard)
+    dashboard
+    ;;
+  links|sub)
+    links
+    ;;
+  logs)
+    logs
+    ;;
+  delete|remove)
+    delete_service
+    ;;
+  *)
+    menu
+    ;;
 esac
-UMBRA_MENU
+UMBRA_MANAGER
 
-chmod +x "$TMP_MENU"
+chmod +x "$BIN_FILE"
 
-# =========================================================
-# INSTALL UMBRA COMMAND
-# =========================================================
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ;;
+  *)
+    export PATH="$BIN_DIR:$PATH"
+    if [ -f "${HOME}/.bashrc" ] && ! grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "${HOME}/.bashrc"; then
+      echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.bashrc"
+    fi
+    ;;
+esac
 
-if [ "$(id -u)" -eq 0 ]; then
-
-    install -m 0755 "$TMP_MENU" "$MENU_BIN"
-
-elif command -v sudo >/dev/null 2>&1; then
-
-    sudo install -m 0755 "$TMP_MENU" "$MENU_BIN"
-
-else
-
-    die "sudo is required to install the 'umbra' dashboard command."
-
-fi
-
-# =========================================================
-# FINISH
-# =========================================================
-
-echo
 line
-echo "                 UMBRA INSTALLATION COMPLETE"
+echo "                  UMBRA GCP SHELL INSTALLER"
 line
 echo
-echo "Image:"
-echo "  $IMAGE"
+echo "Account : $ACCOUNT"
+echo "Project : $PROJECT_ID"
+echo "Region  : $REGION"
+echo "Service : $SERVICE_NAME"
+echo "Image   : $IMAGE"
 echo
-echo "Container:"
-echo "  $CONTAINER"
+echo "This deploys your public Docker Hub image directly to Cloud Run."
+echo "No Docker pull/run on the Cloud Shell machine is used."
 echo
-echo "Port:"
-echo "  $HOST_PORT"
+line
 echo
-echo "Open dashboard anytime with:"
+
+"$BIN_FILE" deploy
+
+echo
+echo "Umbra Cloud Run manager installed:"
 echo
 echo "  umbra"
 echo
-echo "Other commands:"
-echo
+echo "Useful commands:"
 echo "  umbra status"
 echo "  umbra links"
-echo "  umbra stats"
 echo "  umbra logs"
-echo "  umbra restart"
 echo "  umbra update"
-echo "  umbra stop"
-echo "  umbra start"
 echo
-line
-echo
-
-"$MENU_BIN" status
