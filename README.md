@@ -1,10 +1,8 @@
-# Umbra GCP Shell
+# XVPN GCP Shell
 
-Deploy and manage the Umbra Docker image on **Google Cloud Run** directly from:
+**XVPN by shinusterben**
 
-- Google Cloud Shell
-- Google Cloud Console
-- Google Cloud Skills Boost / Qwiklabs Cloud Shell
+Deploy and manage the XVPN Docker image on **Google Cloud Run** directly from Google Cloud Shell or Google Cloud Skills Boost.
 
 Docker image:
 
@@ -12,25 +10,21 @@ Docker image:
 docker.io/noahclanman/gcp:latest
 ```
 
-This project is designed for:
+Main XVPN source:
 
 ```text
-Google Cloud Shell
-        ↓
-Run install.sh
-        ↓
-Deploy Docker image
-        ↓
-Google Cloud Run
-        ↓
-Get *.run.app URL
-        ↓
-Use /sub/shinu
+https://github.com/noahclanman/gcp
+```
+
+Cloud Shell installer:
+
+```text
+https://github.com/noahclanman/gcp-shell
 ```
 
 ---
 
-## Quick Install
+# Quick Install
 
 Open **Google Cloud Shell** and run:
 
@@ -38,7 +32,7 @@ Open **Google Cloud Shell** and run:
 curl -fsSL https://raw.githubusercontent.com/noahclanman/gcp-shell/main/install.sh | bash
 ```
 
-The installer will ask for:
+The installer asks for:
 
 ```text
 Cloud Run service name
@@ -48,11 +42,11 @@ Cloud Run region
 Example:
 
 ```text
-Cloud Run service name [umbra]: erwan
+Cloud Run service name [xvpn]: xvpn
 Cloud Run region [us-central1]: us-central1
 ```
 
-The installer then deploys:
+The installer deploys:
 
 ```text
 docker.io/noahclanman/gcp:latest
@@ -62,50 +56,87 @@ to Google Cloud Run.
 
 ---
 
-# Default Cloud Run Configuration
-
-The installer uses:
+# Deployment Flow
 
 ```text
-Container image:      docker.io/noahclanman/gcp:latest
-Container port:       8080
-Memory:               512Mi
-CPU:                  1
-Concurrency:          500
-Max instances:        16
-Timeout:              3600 seconds
-Execution environment: Second Generation
-HTTP/2:               Enabled
-CPU Boost:            Enabled
-Public access:        Enabled
+Google Cloud Console
+        ↓
+Google Cloud Shell
+        ↓
+gcp-shell/install.sh
+        ↓
+docker.io/noahclanman/gcp:latest
+        ↓
+Google Cloud Run
+        ↓
+https://SERVICE.run.app
 ```
-
-No Umbra environment variables are required for the default deployment.
 
 ---
 
-# Default Umbra User
+# Default Cloud Run Settings
+
+```text
+Image:               docker.io/noahclanman/gcp:latest
+Container Port:      8080
+Memory:              512Mi
+CPU:                 1
+Concurrency:         500
+Max Instances:       16
+Timeout:             3600 seconds
+Execution Env:       Second Generation
+HTTP/2:              Enabled
+CPU Boost:           Enabled
+Public Access:       Enabled
+```
+
+No XVPN environment variables are required for the default deployment.
+
+---
+
+# Default XVPN User
 
 ```text
 ID:    shinusterben
 Alias: shinu
 ```
 
-The Docker image works immediately with these built-in defaults.
+---
+
+# Website
+
+After deployment, Google Cloud Run gives you a URL similar to:
+
+```text
+https://xvpn-xxxxxxxxxx-uc.a.run.app
+```
+
+Main page:
+
+```text
+https://YOUR-CLOUD-RUN-URL/
+```
+
+The homepage displays:
+
+```text
+XVPN
+by shinusterben
+```
 
 ---
 
-# Cloud Run URL
+# XVPN Profile Page
 
-After deployment, Google Cloud Run gives you a public URL.
+```text
+https://YOUR-CLOUD-RUN-URL/xvpn/shinu
+```
 
 Example:
 
 ```text
-https://erwan-xxxxxxxxxx-uc.a.run.app
+https://xvpn-xxxxxxxxxx-uc.a.run.app/xvpn/shinu
 ```
-
-Use the exact URL returned by Cloud Run.
 
 ---
 
@@ -120,119 +151,157 @@ https://YOUR-CLOUD-RUN-URL/sub/shinu
 Example:
 
 ```text
-https://erwan-xxxxxxxxxx-uc.a.run.app/sub/shinu
+https://xvpn-xxxxxxxxxx-uc.a.run.app/sub/shinu
 ```
 
-Plain subscription:
+The old:
 
 ```text
-https://YOUR-CLOUD-RUN-URL/sub/shinu/plain
+/sub/shinu/plain
+```
+
+endpoint is not used.
+
+---
+
+# Default Protocols
+
+XVPN includes:
+
+```text
+VLESS + XHTTP
+VLESS + WebSocket
+VLESS + gRPC
+Trojan + WebSocket
+VMess + WebSocket
+Shadowsocks + WebSocket
+```
+
+---
+
+# Inbound Paths
+
+## VLESS + XHTTP
+
+```text
+/vless/xhttp/shinu
+```
+
+## VLESS + WebSocket
+
+```text
+/vless/ws/shinu
+```
+
+## VLESS + gRPC
+
+```text
+serviceName: vless/grpc/shinu
+```
+
+## Trojan + WebSocket
+
+```text
+/trojan/ws/shinu
+```
+
+## VMess + WebSocket
+
+```text
+/vmess/ws/shinu
+```
+
+## Shadowsocks + WebSocket
+
+```text
+/shadowsocks/ws/shinu
+```
+
+---
+
+# XVPN Shell Dashboard
+
+After installation, run:
+
+```bash
+xvpn
 ```
 
 Example:
 
 ```text
-https://erwan-xxxxxxxxxx-uc.a.run.app/sub/shinu/plain
-```
-
-There is **no public `:8080`** in the Cloud Run URL.
-
-Port `8080` is only used internally by the Cloud Run container.
-
----
-
-# Default Inbounds
-
-Umbra currently includes:
-
-```text
-VLESS + XHTTP
-/vless/xhttp/shinu
-
-VLESS + WebSocket
-/vless/ws/shinu
-
-VLESS + gRPC
-serviceName: vless/grpc/shinu
-
-Trojan + WebSocket
-/trojan/ws/shinu
-
-VMess + WebSocket
-/vmess/ws/shinu
-```
-
----
-
-# Umbra Cloud Shell Dashboard
-
-After installation, run:
-
-```bash
-umbra
-```
-
-Example dashboard:
-
-```text
 ========================================================================
-                       UMBRA CLOUD RUN
+                         XVPN CLOUD RUN
+                           by shinusterben
 ========================================================================
 
-Project:            qwiklabs-gcp-xxxxxxxx
-Region:             us-central1
-Service:            erwan
-Revision:           erwan-00001-xxx
+Status:                ONLINE
+Project:               qwiklabs-gcp-xxxxxxxx
+Region:                us-central1
+Service:               xvpn
+Revision:              xvpn-00001-abc
 
 ========================================================================
-                         CONTAINER
+                           CONTAINER
 ========================================================================
 
-Image:              docker.io/noahclanman/gcp:latest
-Port:               8080
-Memory:             512Mi
-CPU:                1
+Image:                 docker.io/noahclanman/gcp:latest
+Port:                  8080
+Memory:                512Mi
+CPU:                   1
 
 ========================================================================
-                         CLOUD RUN
+                           CLOUD RUN
 ========================================================================
 
-Concurrency:        500
-Max Instances:      16
-Timeout:            3600s
-Execution Env:      Second Generation
-HTTP/2:             Enabled
-Public Access:      Enabled
+Concurrency:           500
+Max Instances:         16
+Timeout:               3600s
+Execution Env:         Second Generation
+HTTP/2:                Enabled
+CPU Boost:             Enabled
+Public Access:         Enabled
 
 ========================================================================
-                          ACCESS
+                           PROTOCOLS
 ========================================================================
 
-Cloud Run URL:
-https://erwan-xxxxxxxxxx-uc.a.run.app
+VLESS + XHTTP           ON
+VLESS + WebSocket       ON
+VLESS + gRPC            ON
+Trojan + WebSocket      ON
+VMess + WebSocket       ON
+Shadowsocks + WebSocket ON
+
+========================================================================
+                            ACCESS
+========================================================================
+
+Site:
+https://xvpn-xxxxxxxxxx-uc.a.run.app/
+
+XVPN Page:
+https://xvpn-xxxxxxxxxx-uc.a.run.app/xvpn/shinu
 
 Subscription:
-https://erwan-xxxxxxxxxx-uc.a.run.app/sub/shinu
-
-Plain Subscription:
-https://erwan-xxxxxxxxxx-uc.a.run.app/sub/shinu/plain
+https://xvpn-xxxxxxxxxx-uc.a.run.app/sub/shinu
 ```
 
 ---
 
-# Umbra Menu
+# XVPN Menu
 
 Run:
 
 ```bash
-umbra
+xvpn
 ```
 
 Menu:
 
 ```text
 [1] Refresh dashboard
-[2] Show subscription / inbounds
+[2] Show XVPN links / inbounds
 [3] Show Cloud Run logs
 [4] Redeploy latest Docker image
 [5] Change service name
@@ -243,62 +312,58 @@ Menu:
 
 ---
 
-# Umbra Commands
+# XVPN Commands
 
-Show Cloud Run dashboard:
+Dashboard:
 
 ```bash
-umbra status
+xvpn status
 ```
 
-Show subscription and inbound details:
+Show links:
 
 ```bash
-umbra links
+xvpn links
 ```
 
-Show Cloud Run logs:
+Show logs:
 
 ```bash
-umbra logs
+xvpn logs
 ```
 
-Redeploy the latest Docker image:
+Redeploy latest Docker image:
 
 ```bash
-umbra update
+xvpn update
 ```
 
-Open the full menu:
+Open menu:
 
 ```bash
-umbra
+xvpn
 ```
 
 ---
 
-# Docker Hub Image
+# Docker Hub
 
-Umbra Docker image:
+The XVPN Docker image is:
 
 ```text
 docker.io/noahclanman/gcp:latest
 ```
 
-This is the same image used by the shell installer.
+The Cloud Shell installer deploys this image directly to Google Cloud Run.
 
 ---
 
-# Deploy Docker Image Manually from Cloud Shell
+# Manual Cloud Run Deployment
 
-You do not have to use `install.sh`.
-
-You can deploy the Docker image manually from Google Cloud Shell.
-
-Example:
+You can deploy XVPN manually without using the installer.
 
 ```bash
-gcloud run deploy umbra \
+gcloud run deploy xvpn \
   --image docker.io/noahclanman/gcp:latest \
   --region us-central1 \
   --platform managed \
@@ -309,45 +374,64 @@ gcloud run deploy umbra \
   --max-instances 16 \
   --timeout 3600 \
   --execution-environment gen2 \
+  --cpu-boost \
   --use-http2 \
   --allow-unauthenticated
 ```
 
-After deployment, get the Cloud Run URL:
+---
+
+# Get Cloud Run URL
 
 ```bash
-gcloud run services describe umbra \
+gcloud run services describe xvpn \
   --region us-central1 \
   --format='value(status.url)'
 ```
 
-Example result:
+Example:
 
 ```text
-https://umbra-xxxxxxxxxx-uc.a.run.app
+https://xvpn-xxxxxxxxxx-uc.a.run.app
 ```
 
-Your subscription is then:
+---
+
+# Access URLs
+
+Website:
 
 ```text
-https://umbra-xxxxxxxxxx-uc.a.run.app/sub/shinu
+https://YOUR-CLOUD-RUN-URL/
+```
+
+XVPN page:
+
+```text
+https://YOUR-CLOUD-RUN-URL/xvpn/shinu
+```
+
+Subscription:
+
+```text
+https://YOUR-CLOUD-RUN-URL/sub/shinu
 ```
 
 ---
 
 # Deploy from Google Cloud Console
 
-You can also deploy the Docker image using the Google Cloud Console UI.
+You can also deploy XVPN without Cloud Shell.
 
-Go to:
+Open:
 
 ```text
 Google Cloud Console
 → Cloud Run
-→ Create Service / Deploy Container
+→ Deploy Container
 ```
 
-Use this image:
+Use:
 
 ```text
 docker.io/noahclanman/gcp:latest
@@ -359,56 +443,39 @@ Container port:
 8080
 ```
 
-Recommended settings:
+Suggested configuration:
 
 ```text
 Memory:               512Mi
 CPU:                  1
 Concurrency:          500
-Max instances:        16
+Max Instances:        16
 Timeout:              3600 seconds
-Execution environment: Second Generation
+Execution Env:        Second Generation
 HTTP/2:               Enabled
-Public access:        Enabled
+CPU Boost:            Enabled
+Public Access:        Enabled
 ```
 
-No environment variables are required for the default Umbra deployment.
+No environment variables are required.
 
 ---
 
-# Google Cloud Skills Boost / Qwiklabs
+# Google Cloud Skills Boost
 
-This project can also be used from a Google Cloud Skills Boost lab.
+XVPN can also be deployed from a Google Cloud Skills Boost / Qwiklabs project.
 
-Typical flow:
+Open Cloud Shell and run:
 
-```text
-1. Start the Google Cloud Skills Boost lab
-
-2. Open Google Cloud Console
-
-3. Open Cloud Shell
-
-4. Run:
-
-   curl -fsSL https://raw.githubusercontent.com/noahclanman/gcp-shell/main/install.sh | bash
-
-5. Choose your Cloud Run service name
-
-6. Choose your Cloud Run region
-
-7. Wait for deployment
-
-8. Copy the generated *.run.app URL
-
-9. Use:
-
-   https://YOUR-CLOUD-RUN-URL/sub/shinu
+```bash
+curl -fsSL https://raw.githubusercontent.com/noahclanman/gcp-shell/main/install.sh | bash
 ```
+
+The installer automatically uses the currently selected Google Cloud project.
 
 ---
 
-# Check Current Google Cloud Project
+# Check Current Project
 
 ```bash
 gcloud config get-value project
@@ -424,121 +491,105 @@ gcloud run services list
 
 ---
 
-# Describe Cloud Run Service
-
-Example:
+# Check XVPN Service
 
 ```bash
-gcloud run services describe umbra \
+gcloud run services describe xvpn \
   --region us-central1
 ```
 
 ---
 
-# Get Cloud Run URL
+# View Logs
+
+Using the XVPN manager:
 
 ```bash
-gcloud run services describe umbra \
-  --region us-central1 \
-  --format='value(status.url)'
-```
-
----
-
-# View Cloud Run Logs
-
-Using Umbra:
-
-```bash
-umbra logs
+xvpn logs
 ```
 
 Or manually:
 
 ```bash
-gcloud run services logs read umbra \
-  --region us-central1
+gcloud run services logs read xvpn \
+  --region us-central1 \
+  --limit 100
 ```
 
 ---
 
-# Update Umbra
+# Update XVPN
 
-The easiest method:
+Use:
 
 ```bash
-umbra update
+xvpn update
 ```
 
-This redeploys the latest:
+This redeploys:
 
 ```text
 docker.io/noahclanman/gcp:latest
 ```
 
-You can also redeploy manually:
+You can also manually redeploy:
 
 ```bash
-gcloud run deploy umbra \
+gcloud run deploy xvpn \
   --image docker.io/noahclanman/gcp:latest \
   --region us-central1
 ```
 
 ---
 
-# Delete Cloud Run Service
+# Delete XVPN
 
-Open the menu:
+Open:
 
 ```bash
-umbra
+xvpn
 ```
 
-Then select:
+and choose:
 
 ```text
 [7] Delete Cloud Run service
 ```
 
-Or delete manually:
+Or manually:
 
 ```bash
-gcloud run services delete umbra \
+gcloud run services delete xvpn \
   --region us-central1
 ```
 
 ---
 
-# Custom Umbra User
+# Custom User
 
-The Docker image already has:
+The default XVPN account is:
 
 ```text
 shinusterben:shinu
 ```
 
-as the default.
-
-You can optionally override it using:
-
-```text
-USERS=myusername:myalias
-```
+You can optionally override it.
 
 Example:
 
 ```bash
-gcloud run deploy umbra \
+gcloud run deploy xvpn \
   --image docker.io/noahclanman/gcp:latest \
   --region us-central1 \
   --set-env-vars USERS="noah:noah" \
   --allow-unauthenticated
 ```
 
-The subscription becomes:
+Then:
 
 ```text
-https://YOUR-CLOUD-RUN-URL/sub/noah
+/xvpn/noah
+/sub/noah
 ```
 
 ---
@@ -551,6 +602,14 @@ Example:
 USERS=shinusterben:shinu,noah:noah,user3:user3
 ```
 
+Pages:
+
+```text
+/xvpn/shinu
+/xvpn/noah
+/xvpn/user3
+```
+
 Subscriptions:
 
 ```text
@@ -559,20 +618,19 @@ Subscriptions:
 /sub/user3
 ```
 
-Each alias receives its own subscription.
-
 ---
 
 # Optional Environment Variables
 
-The default deployment does not require environment variables.
+No variables are required for the default configuration.
 
-Optional settings:
+Optional variables:
 
 ```text
 USERS
 ENABLE_VMESS
 ENABLE_GRPC
+ENABLE_SHADOWSOCKS
 MAX_DEVICES
 DEVICE_WINDOW
 DEVICE_INTERVAL
@@ -580,122 +638,78 @@ TROJAN_PASSWORD
 SHOW_LINKS
 ```
 
-VMess and gRPC are enabled by default in the current Docker image.
+---
+
+# Cloud Run Port
+
+XVPN listens internally on:
+
+```text
+8080
+```
+
+You do not add `:8080` to your public Cloud Run URL.
+
+Correct:
+
+```text
+https://YOUR-SERVICE.run.app/sub/shinu
+```
+
+Not:
+
+```text
+https://YOUR-SERVICE.run.app:8080/sub/shinu
+```
+
+Cloud Run handles the public HTTPS connection.
 
 ---
 
-# Check Umbra Homepage
+# HTTP Port 80
 
-After deployment:
+Google Cloud Run provides an HTTPS endpoint and redirects HTTP requests to HTTPS.
 
-```bash
-curl https://YOUR-CLOUD-RUN-URL/
-```
-
----
-
-# Test Subscription
-
-```bash
-curl https://YOUR-CLOUD-RUN-URL/sub/shinu
-```
-
----
-
-# Test Plain Subscription
-
-```bash
-curl https://YOUR-CLOUD-RUN-URL/sub/shinu/plain
-```
-
----
-
-# Important
-
-`gcp-shell` does **not** run Umbra permanently inside the temporary Cloud Shell machine.
-
-Cloud Shell is used to execute the deployment commands.
-
-The actual Docker image:
-
-```text
-docker.io/noahclanman/gcp:latest
-```
-
-runs on:
-
-```text
-Google Cloud Run
-```
-
-and Google Cloud Run provides the public:
-
-```text
-*.run.app
-```
-
-URL.
-
----
-
-# Repositories
-
-GCP Shell installer:
-
-```text
-https://github.com/noahclanman/gcp-shell
-```
-
-Main Umbra Docker project:
-
-```text
-https://github.com/noahclanman/gcp
-```
-
-Docker Hub image:
-
-```text
-docker.io/noahclanman/gcp:latest
-```
+A normal public raw non-TLS port `80` transport is therefore not exposed directly by Cloud Run.
 
 ---
 
 # Quick Reference
 
-Install from Google Cloud Shell:
+Install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/noahclanman/gcp-shell/main/install.sh | bash
 ```
 
-Open dashboard:
+Dashboard:
 
 ```bash
-umbra
+xvpn
 ```
 
-Show status:
+Status:
 
 ```bash
-umbra status
+xvpn status
 ```
 
-Show links:
+Links:
 
 ```bash
-umbra links
+xvpn links
 ```
 
-Show logs:
+Logs:
 
 ```bash
-umbra logs
+xvpn logs
 ```
 
 Update:
 
 ```bash
-umbra update
+xvpn update
 ```
 
 Docker image:
@@ -704,8 +718,29 @@ Docker image:
 docker.io/noahclanman/gcp:latest
 ```
 
-Default subscription:
+Website:
+
+```text
+https://YOUR-CLOUD-RUN-URL/
+```
+
+XVPN page:
+
+```text
+https://YOUR-CLOUD-RUN-URL/xvpn/shinu
+```
+
+Subscription:
 
 ```text
 https://YOUR-CLOUD-RUN-URL/sub/shinu
+```
+
+---
+
+# XVPN
+
+```text
+XVPN
+by shinusterben
 ```
