@@ -1,81 +1,14 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-IMAGE_DEFAULT="docker.io/noahclanman/gcp:latest"
-SERVICE_DEFAULT="umbra"
-REGION_DEFAULT="us-central1"
+# ============================================================
+# XVPN - Google Cloud Shell -> Cloud Run Installer / Manager
+# by shinusterben
+# ============================================================
 
-CONFIG_DIR="${HOME}/.config/umbra"
-CONFIG_FILE="${CONFIG_DIR}/cloudrun.env"
-BIN_DIR="${HOME}/.local/bin"
-BIN_FILE="${BIN_DIR}/umbra"
-
-line() {
-  printf '%*s\n' 68 '' | tr ' ' '='
-}
-
-die() {
-  echo "[ERROR] $*" >&2
-  exit 1
-}
-
-prompt_tty() {
-  local prompt="$1"
-  local default="$2"
-  local answer=""
-
-  if [ -r /dev/tty ]; then
-    read -r -p "$prompt [$default]: " answer < /dev/tty || true
-  fi
-
-  printf '%s' "${answer:-$default}"
-}
-
-command -v gcloud >/dev/null 2>&1 || die "gcloud is not installed. Run this from Google Cloud Shell / Skills Boost Cloud Shell."
-
-ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n1 || true)"
-[ -n "$ACCOUNT" ] || die "No active Google Cloud account. Authenticate gcloud first."
-
-PROJECT_ID="$(gcloud config get-value project 2>/dev/null || true)"
-if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "(unset)" ]; then
-  PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
-fi
-[ -n "$PROJECT_ID" ] || die "No active Google Cloud project. Select your Skills Boost / GCP project first."
-
-SERVICE_NAME="${SERVICE_NAME:-$(prompt_tty "Cloud Run service name" "$SERVICE_DEFAULT")}"
-REGION="${REGION:-$(prompt_tty "Cloud Run region" "$REGION_DEFAULT")}"
-IMAGE="${IMAGE:-$IMAGE_DEFAULT}"
-
-if ! [[ "$SERVICE_NAME" =~ ^[a-z]([a-z0-9-]{0,47}[a-z0-9])?$ ]]; then
-  die "Invalid service name. Use lowercase letters, numbers and hyphens; start with a letter; max 49 characters."
-fi
-
-if ! [[ "$REGION" =~ ^[a-z0-9-]+$ ]]; then
-  die "Invalid region: $REGION"
-fi
-
-mkdir -p "$CONFIG_DIR" "$BIN_DIR"
-
-cat > "$CONFIG_FILE" <<EOF
-PROJECT_ID='$PROJECT_ID'
-SERVICE_NAME='$SERVICE_NAME'
-REGION='$REGION'
-IMAGE='$IMAGE'
-EOF
-
-cat > "$BIN_FILE" <<'UMBRA_MANAGER'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-
-CONFIG_FILE="${HOME}/.config/umbra/cloudrun.env"
-
-[ -f "$CONFIG_FILE" ] || {
-  echo "[ERROR] Umbra config not found: $CONFIG_FILE" >&2
-  exit 1
-}
-
-# shellcheck disable=SC1090
-source "$CONFIG_FILE"
+IMAGE="docker.io/noahclanman/gcp:latest"
+DEFAULT_SERVICE="xvpn"
+DEFAULT_REGION="us-central1"
 
 PORT="8080"
 MEMORY="512Mi"
@@ -84,344 +17,618 @@ CONCURRENCY="500"
 MAX_INSTANCES="16"
 TIMEOUT="3600"
 
+CONFIG_DIR="${HOME}/.config/xvpn"
+CONFIG_FILE="${CONFIG_DIR}/config"
+BIN_DIR="${HOME}/.local/bin"
+XVPN_BIN="${BIN_DIR}/xvpn"
+
+# ------------------------------------------------------------
+# COLORS
+# ------------------------------------------------------------
+
+if [ -t 1 ]; then
+    GREEN='\033[0;32m'
+    CYAN='\033[0;36m'
+    YELLOW='\033[1;33m'
+    RED='\033[0;31m'
+    BOLD='\033[1m'
+    RESET='\033[0m'
+else
+    GREEN=''
+    CYAN=''
+    YELLOW=''
+    RED=''
+    BOLD=''
+    RESET=''
+fi
+
 line() {
-  printf '%*s\n' 72 '' | tr ' ' '='
+    printf '%*s\n' 72 '' | tr ' ' '='
 }
 
-pause_menu() {
-  echo
-  read -r -p "Press Enter to continue..." < /dev/tty || true
+info() {
+    printf "${CYAN}[INFO]${RESET} %s\n" "$*"
+}
+
+success() {
+    printf "${GREEN}[OK]${RESET} %s\n" "$*"
+}
+
+warn() {
+    printf "${YELLOW}[WARN]${RESET} %s\n" "$*"
+}
+
+die() {
+    printf "${RED}[ERROR]${RESET} %s\n" "$*" >&2
+    exit 1
+}
+
+# ------------------------------------------------------------
+# REQUIREMENTS
+# ------------------------------------------------------------
+
+command -v gcloud >/dev/null 2>&1 || \
+    die "gcloud CLI was not found. Run this from Google Cloud Shell."
+
+PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
+
+if [ -z "$PROJECT" ] || [ "$PROJECT" = "(unset)" ]; then
+    die "No Google Cloud project is selected."
+fi
+
+# ------------------------------------------------------------
+# INPUT
+# ------------------------------------------------------------
+
+echo
+line
+echo "                     XVPN CLOUD RUN INSTALLER"
+echo "                         by shinusterben"
+line
+echo
+echo "Project:"
+echo "  $PROJECT"
+echo
+
+read -r -p "Cloud Run service name [${DEFAULT_SERVICE}]: " SERVICE
+SERVICE="${SERVICE:-$DEFAULT_SERVICE}"
+
+read -r -p "Cloud Run region [${DEFAULT_REGION}]: " REGION
+REGION="${REGION:-$DEFAULT_REGION}"
+
+if ! [[ "$SERVICE" =~ ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+    die "Invalid Cloud Run service name."
+fi
+
+if ! [[ "$REGION" =~ ^[a-z0-9-]+$ ]]; then
+    die "Invalid Cloud Run region."
+fi
+
+echo
+line
+echo " Deployment"
+line
+printf " %-20s %s\n" "Project:" "$PROJECT"
+printf " %-20s %s\n" "Service:" "$SERVICE"
+printf " %-20s %s\n" "Region:" "$REGION"
+printf " %-20s %s\n" "Image:" "$IMAGE"
+printf " %-20s %s\n" "Port:" "$PORT"
+line
+echo
+
+# ------------------------------------------------------------
+# ENABLE CLOUD RUN API
+# ------------------------------------------------------------
+
+info "Checking Cloud Run API..."
+
+gcloud services enable run.googleapis.com \
+    --project "$PROJECT" \
+    --quiet >/dev/null 2>&1 || true
+
+# ------------------------------------------------------------
+# DEPLOY
+# ------------------------------------------------------------
+
+info "Deploying XVPN to Google Cloud Run..."
+
+gcloud run deploy "$SERVICE" \
+    --project "$PROJECT" \
+    --region "$REGION" \
+    --platform managed \
+    --image "$IMAGE" \
+    --port "$PORT" \
+    --memory "$MEMORY" \
+    --cpu "$CPU" \
+    --concurrency "$CONCURRENCY" \
+    --max-instances "$MAX_INSTANCES" \
+    --timeout "$TIMEOUT" \
+    --execution-environment gen2 \
+    --cpu-boost \
+    --use-http2 \
+    --allow-unauthenticated \
+    --quiet
+
+success "Cloud Run deployment completed."
+
+# ------------------------------------------------------------
+# SAVE SETTINGS
+# ------------------------------------------------------------
+
+mkdir -p "$CONFIG_DIR"
+
+cat > "$CONFIG_FILE" <<EOF
+PROJECT="$PROJECT"
+SERVICE="$SERVICE"
+REGION="$REGION"
+IMAGE="$IMAGE"
+PORT="$PORT"
+MEMORY="$MEMORY"
+CPU="$CPU"
+CONCURRENCY="$CONCURRENCY"
+MAX_INSTANCES="$MAX_INSTANCES"
+TIMEOUT="$TIMEOUT"
+EOF
+
+chmod 600 "$CONFIG_FILE"
+
+# ------------------------------------------------------------
+# CREATE XVPN MANAGER
+# ------------------------------------------------------------
+
+mkdir -p "$BIN_DIR"
+
+cat > "$XVPN_BIN" <<'XVPN_SCRIPT'
+#!/usr/bin/env bash
+set -u
+
+CONFIG_FILE="${HOME}/.config/xvpn/config"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "XVPN configuration was not found."
+    echo "Run the installer again."
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$CONFIG_FILE"
+
+if [ -t 1 ]; then
+    GREEN='\033[0;32m'
+    CYAN='\033[0;36m'
+    YELLOW='\033[1;33m'
+    RED='\033[0;31m'
+    RESET='\033[0m'
+else
+    GREEN=''
+    CYAN=''
+    YELLOW=''
+    RED=''
+    RESET=''
+fi
+
+line() {
+    printf '%*s\n' 72 '' | tr ' ' '='
 }
 
 service_exists() {
-  gcloud run services describe "$SERVICE_NAME" \
-    --project "$PROJECT_ID" \
-    --region "$REGION" \
-    >/dev/null 2>&1
+    gcloud run services describe "$SERVICE" \
+        --project "$PROJECT" \
+        --region "$REGION" \
+        >/dev/null 2>&1
 }
 
-service_url() {
-  gcloud run services describe "$SERVICE_NAME" \
-    --project "$PROJECT_ID" \
-    --region "$REGION" \
-    --format='value(status.url)' 2>/dev/null
+get_url() {
+    gcloud run services describe "$SERVICE" \
+        --project "$PROJECT" \
+        --region "$REGION" \
+        --format='value(status.url)' \
+        2>/dev/null
 }
 
-latest_revision() {
-  gcloud run services describe "$SERVICE_NAME" \
-    --project "$PROJECT_ID" \
-    --region "$REGION" \
-    --format='value(status.latestReadyRevisionName)' 2>/dev/null
+get_revision() {
+    gcloud run services describe "$SERVICE" \
+        --project "$PROJECT" \
+        --region "$REGION" \
+        --format='value(status.latestReadyRevisionName)' \
+        2>/dev/null
 }
 
-deploy() {
-  line
-  echo "                    UMBRA CLOUD RUN DEPLOY"
-  line
-  echo "Project : $PROJECT_ID"
-  echo "Region  : $REGION"
-  echo "Service : $SERVICE_NAME"
-  echo "Image   : $IMAGE"
-  echo
-  echo "Deploying..."
-  echo
-
-  gcloud services enable run.googleapis.com \
-    --project "$PROJECT_ID" \
-    --quiet
-
-  gcloud run deploy "$SERVICE_NAME" \
-    --project "$PROJECT_ID" \
-    --region "$REGION" \
-    --image "$IMAGE" \
-    --port "$PORT" \
-    --allow-unauthenticated \
-    --execution-environment gen2 \
-    --cpu "$CPU" \
-    --memory "$MEMORY" \
-    --concurrency "$CONCURRENCY" \
-    --max-instances "$MAX_INSTANCES" \
-    --min-instances 0 \
-    --timeout "$TIMEOUT" \
-    --use-http2 \
-    --cpu-boost \
-    --ingress all \
-    --quiet
-
-  echo
-  dashboard
+get_image() {
+    gcloud run services describe "$SERVICE" \
+        --project "$PROJECT" \
+        --region "$REGION" \
+        --format='value(spec.template.spec.containers[0].image)' \
+        2>/dev/null
 }
 
 dashboard() {
-  clear 2>/dev/null || true
+    clear 2>/dev/null || true
 
-  line
-  echo "                       UMBRA CLOUD RUN"
-  line
+    local URL="-"
+    local REVISION="-"
+    local CURRENT_IMAGE="$IMAGE"
+    local STATUS="NOT DEPLOYED"
 
-  if ! service_exists; then
+    if service_exists; then
+        URL="$(get_url)"
+        REVISION="$(get_revision)"
+        CURRENT_IMAGE="$(get_image)"
+        STATUS="ONLINE"
+    fi
+
+    line
+    echo "                         XVPN CLOUD RUN"
+    echo "                           by shinusterben"
+    line
     echo
-    echo "Status: NOT DEPLOYED"
-    echo
-    echo "Project: $PROJECT_ID"
-    echo "Region : $REGION"
-    echo "Service: $SERVICE_NAME"
-    echo "Image  : $IMAGE"
+    printf " %-22s %s\n" "Status:" "$STATUS"
+    printf " %-22s %s\n" "Project:" "$PROJECT"
+    printf " %-22s %s\n" "Region:" "$REGION"
+    printf " %-22s %s\n" "Service:" "$SERVICE"
+    printf " %-22s %s\n" "Revision:" "${REVISION:--}"
     echo
     line
-    return
-  fi
+    echo "                           CONTAINER"
+    line
+    echo
+    printf " %-22s %s\n" "Image:" "${CURRENT_IMAGE:-$IMAGE}"
+    printf " %-22s %s\n" "Port:" "$PORT"
+    printf " %-22s %s\n" "Memory:" "$MEMORY"
+    printf " %-22s %s\n" "CPU:" "$CPU"
+    echo
+    line
+    echo "                           CLOUD RUN"
+    line
+    echo
+    printf " %-22s %s\n" "Concurrency:" "$CONCURRENCY"
+    printf " %-22s %s\n" "Max Instances:" "$MAX_INSTANCES"
+    printf " %-22s %ss\n" "Timeout:" "$TIMEOUT"
+    printf " %-22s %s\n" "Execution Env:" "Second Generation"
+    printf " %-22s %s\n" "HTTP/2:" "Enabled"
+    printf " %-22s %s\n" "CPU Boost:" "Enabled"
+    printf " %-22s %s\n" "Public Access:" "Enabled"
+    echo
+    line
+    echo "                           PROTOCOLS"
+    line
+    echo
+    printf " %-26s %s\n" "VLESS + XHTTP" "ON"
+    printf " %-26s %s\n" "VLESS + WebSocket" "ON"
+    printf " %-26s %s\n" "VLESS + gRPC" "ON"
+    printf " %-26s %s\n" "Trojan + WebSocket" "ON"
+    printf " %-26s %s\n" "VMess + WebSocket" "ON"
+    printf " %-26s %s\n" "Shadowsocks + WebSocket" "ON"
+    echo
+    line
+    echo "                            ACCESS"
+    line
+    echo
 
-  local url revision
-  url="$(service_url)"
-  revision="$(latest_revision)"
+    if [ "$STATUS" = "ONLINE" ]; then
+        echo "Site:"
+        echo "  ${URL}/"
+        echo
+        echo "XVPN Page:"
+        echo "  ${URL}/xvpn/shinu"
+        echo
+        echo "Subscription:"
+        echo "  ${URL}/sub/shinu"
+    else
+        echo "Cloud Run service is not currently deployed."
+    fi
 
-  echo
-  printf " %-20s %s\n" "Project:" "$PROJECT_ID"
-  printf " %-20s %s\n" "Region:" "$REGION"
-  printf " %-20s %s\n" "Service:" "$SERVICE_NAME"
-  printf " %-20s %s\n" "Revision:" "${revision:-unknown}"
-
-  echo
-  line
-  echo "                         CONTAINER"
-  line
-  printf " %-20s %s\n" "Image:" "$IMAGE"
-  printf " %-20s %s\n" "Port:" "$PORT"
-  printf " %-20s %s\n" "Memory:" "$MEMORY"
-  printf " %-20s %s\n" "CPU:" "$CPU"
-
-  echo
-  line
-  echo "                         CLOUD RUN"
-  line
-  printf " %-20s %s\n" "Concurrency:" "$CONCURRENCY"
-  printf " %-20s %s\n" "Max Instances:" "$MAX_INSTANCES"
-  printf " %-20s %s\n" "Min Instances:" "0"
-  printf " %-20s %ss\n" "Timeout:" "$TIMEOUT"
-  printf " %-20s %s\n" "Execution Env:" "Second Generation"
-  printf " %-20s %s\n" "HTTP/2:" "Enabled"
-  printf " %-20s %s\n" "Public Access:" "Enabled"
-  printf " %-20s %s\n" "CPU Boost:" "Enabled"
-
-  echo
-  line
-  echo "                         PROTOCOLS"
-  line
-  printf " %-20s %s\n" "VLESS XHTTP:" "ON"
-  printf " %-20s %s\n" "VLESS WebSocket:" "ON"
-  printf " %-20s %s\n" "VLESS gRPC:" "ON"
-  printf " %-20s %s\n" "Trojan WebSocket:" "ON"
-  printf " %-20s %s\n" "VMess WebSocket:" "ON"
-
-  echo
-  line
-  echo "                          ACCESS"
-  line
-  printf " %-20s %s\n" "Cloud Run URL:" "$url"
-  printf " %-20s %s/sub/shinu\n" "Subscription:" "$url"
-  printf " %-20s %s/sub/shinu/plain\n" "Plain Sub:" "$url"
-  line
+    echo
+    line
 }
 
 links() {
-  if ! service_exists; then
-    echo "Umbra is not deployed."
-    return 1
-  fi
+    if ! service_exists; then
+        echo "Cloud Run service does not exist."
+        return 1
+    fi
 
-  local url
-  url="$(service_url)"
+    local URL
+    URL="$(get_url)"
 
-  clear 2>/dev/null || true
-  line
-  echo "                       UMBRA LINKS"
-  line
-  echo
-  echo "Cloud Run URL:"
-  echo "  $url"
-  echo
-  echo "Subscription:"
-  echo "  $url/sub/shinu"
-  echo
-  echo "Plain Subscription:"
-  echo "  $url/sub/shinu/plain"
-  echo
-  echo "Inbounds:"
-  echo "  VLESS XHTTP      /vless/xhttp/shinu"
-  echo "  VLESS WebSocket  /vless/ws/shinu"
-  echo "  VLESS gRPC       serviceName: vless/grpc/shinu"
-  echo "  Trojan WebSocket /trojan/ws/shinu"
-  echo "  VMess WebSocket  /vmess/ws/shinu"
-  echo
-  line
+    clear 2>/dev/null || true
+
+    line
+    echo "                           XVPN LINKS"
+    line
+    echo
+    echo "Website:"
+    echo "  ${URL}/"
+    echo
+    echo "XVPN Profile:"
+    echo "  ${URL}/xvpn/shinu"
+    echo
+    echo "Subscription:"
+    echo "  ${URL}/sub/shinu"
+    echo
+    line
+    echo "                         INBOUND PATHS"
+    line
+    echo
+    echo "VLESS + XHTTP"
+    echo "  /vless/xhttp/shinu"
+    echo
+    echo "VLESS + WebSocket"
+    echo "  /vless/ws/shinu"
+    echo
+    echo "VLESS + gRPC"
+    echo "  serviceName: vless/grpc/shinu"
+    echo
+    echo "Trojan + WebSocket"
+    echo "  /trojan/ws/shinu"
+    echo
+    echo "VMess + WebSocket"
+    echo "  /vmess/ws/shinu"
+    echo
+    echo "Shadowsocks + WebSocket"
+    echo "  /shadowsocks/ws/shinu"
+    echo
+    line
 }
 
 logs() {
-  if ! service_exists; then
-    echo "Umbra is not deployed."
-    return 1
-  fi
+    if ! service_exists; then
+        echo "Cloud Run service does not exist."
+        return 1
+    fi
 
-  gcloud run services logs read "$SERVICE_NAME" \
-    --project "$PROJECT_ID" \
-    --region "$REGION" \
-    --limit=50
+    echo
+    echo "Latest XVPN Cloud Run logs:"
+    echo
+
+    gcloud run services logs read "$SERVICE" \
+        --project "$PROJECT" \
+        --region "$REGION" \
+        --limit 100
 }
 
-save_config() {
-  cat > "$CONFIG_FILE" <<EOF
-PROJECT_ID='$PROJECT_ID'
-SERVICE_NAME='$SERVICE_NAME'
-REGION='$REGION'
-IMAGE='$IMAGE'
-EOF
-}
+update_service() {
+    echo
+    echo "Redeploying latest XVPN image..."
+    echo
 
-change_service() {
-  local value=""
-  read -r -p "New Cloud Run service name [$SERVICE_NAME]: " value < /dev/tty || true
-  [ -n "$value" ] || return 0
+    gcloud run deploy "$SERVICE" \
+        --project "$PROJECT" \
+        --region "$REGION" \
+        --platform managed \
+        --image "$IMAGE" \
+        --port "$PORT" \
+        --memory "$MEMORY" \
+        --cpu "$CPU" \
+        --concurrency "$CONCURRENCY" \
+        --max-instances "$MAX_INSTANCES" \
+        --timeout "$TIMEOUT" \
+        --execution-environment gen2 \
+        --cpu-boost \
+        --use-http2 \
+        --allow-unauthenticated \
+        --quiet
 
-  if ! [[ "$value" =~ ^[a-z]([a-z0-9-]{0,47}[a-z0-9])?$ ]]; then
-    echo "Invalid service name."
-    return 1
-  fi
-
-  SERVICE_NAME="$value"
-  save_config
-  echo "Service changed to: $SERVICE_NAME"
-}
-
-change_region() {
-  local value=""
-  read -r -p "New Cloud Run region [$REGION]: " value < /dev/tty || true
-  [ -n "$value" ] || return 0
-
-  if ! [[ "$value" =~ ^[a-z0-9-]+$ ]]; then
-    echo "Invalid region."
-    return 1
-  fi
-
-  REGION="$value"
-  save_config
-  echo "Region changed to: $REGION"
+    echo
+    echo "XVPN redeployed successfully."
 }
 
 delete_service() {
-  if ! service_exists; then
-    echo "Umbra is not deployed."
-    return 0
-  fi
+    if ! service_exists; then
+        echo "Cloud Run service does not exist."
+        return
+    fi
 
-  local answer=""
-  read -r -p "Delete Cloud Run service '$SERVICE_NAME' in '$REGION'? [y/N]: " answer < /dev/tty || true
+    echo
+    read -r -p "Delete Cloud Run service '${SERVICE}'? [y/N]: " CONFIRM
 
-  case "$answer" in
-    y|Y|yes|YES)
-      gcloud run services delete "$SERVICE_NAME" \
-        --project "$PROJECT_ID" \
-        --region "$REGION" \
-        --quiet
-      echo "Service deleted."
-      ;;
-    *)
-      echo "Cancelled."
-      ;;
-  esac
+    case "$CONFIRM" in
+        y|Y|yes|YES)
+            gcloud run services delete "$SERVICE" \
+                --project "$PROJECT" \
+                --region "$REGION" \
+                --quiet
+            echo
+            echo "Service deleted."
+            ;;
+        *)
+            echo "Cancelled."
+            ;;
+    esac
+}
+
+change_service() {
+    local NEW_SERVICE
+
+    echo
+    read -r -p "New service name: " NEW_SERVICE
+
+    if ! [[ "$NEW_SERVICE" =~ ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+        echo "Invalid service name."
+        return
+    fi
+
+    SERVICE="$NEW_SERVICE"
+
+    sed -i \
+        "s/^SERVICE=.*/SERVICE=\"${SERVICE}\"/" \
+        "$CONFIG_FILE"
+
+    echo
+    echo "Service changed to: $SERVICE"
+}
+
+change_region() {
+    local NEW_REGION
+
+    echo
+    read -r -p "New region: " NEW_REGION
+
+    if ! [[ "$NEW_REGION" =~ ^[a-z0-9-]+$ ]]; then
+        echo "Invalid region."
+        return
+    fi
+
+    REGION="$NEW_REGION"
+
+    sed -i \
+        "s/^REGION=.*/REGION=\"${REGION}\"/" \
+        "$CONFIG_FILE"
+
+    echo
+    echo "Region changed to: $REGION"
+}
+
+pause_menu() {
+    echo
+    read -r -p "Press Enter to continue..."
 }
 
 menu() {
-  while true; do
-    dashboard
-    echo
-    echo " [1] Refresh dashboard"
-    echo " [2] Show subscription / inbounds"
-    echo " [3] Show Cloud Run logs"
-    echo " [4] Redeploy latest Docker image"
-    echo " [5] Change service name"
-    echo " [6] Change region"
-    echo " [7] Delete Cloud Run service"
-    echo " [0] Exit"
-    echo
+    while true; do
+        dashboard
 
-    local choice=""
-    read -r -p " Select option: " choice < /dev/tty || true
+        echo
+        echo " [1] Refresh dashboard"
+        echo " [2] Show XVPN links / inbounds"
+        echo " [3] Show Cloud Run logs"
+        echo " [4] Redeploy latest Docker image"
+        echo " [5] Change service name"
+        echo " [6] Change region"
+        echo " [7] Delete Cloud Run service"
+        echo " [0] Exit"
+        echo
 
-    case "$choice" in
-      1) ;;
-      2) links; pause_menu ;;
-      3) clear 2>/dev/null || true; logs; pause_menu ;;
-      4) clear 2>/dev/null || true; deploy; pause_menu ;;
-      5) change_service; pause_menu ;;
-      6) change_region; pause_menu ;;
-      7) delete_service; pause_menu ;;
-      0) clear 2>/dev/null || true; exit 0 ;;
-      *) echo "Invalid option."; sleep 1 ;;
-    esac
-  done
+        read -r -p " Select option: " CHOICE
+
+        case "$CHOICE" in
+            1)
+                ;;
+            2)
+                links
+                pause_menu
+                ;;
+            3)
+                logs
+                pause_menu
+                ;;
+            4)
+                update_service
+                pause_menu
+                ;;
+            5)
+                change_service
+                pause_menu
+                ;;
+            6)
+                change_region
+                pause_menu
+                ;;
+            7)
+                delete_service
+                pause_menu
+                ;;
+            0)
+                clear 2>/dev/null || true
+                exit 0
+                ;;
+            *)
+                echo "Invalid option."
+                sleep 1
+                ;;
+        esac
+    done
 }
 
 case "${1:-}" in
-  deploy|update|redeploy)
-    deploy
-    ;;
-  status|dashboard)
-    dashboard
-    ;;
-  links|sub)
-    links
-    ;;
-  logs)
-    logs
-    ;;
-  delete|remove)
-    delete_service
-    ;;
-  *)
-    menu
-    ;;
+    status|dashboard)
+        dashboard
+        ;;
+    links|sub)
+        links
+        ;;
+    logs)
+        logs
+        ;;
+    update|deploy)
+        update_service
+        ;;
+    delete)
+        delete_service
+        ;;
+    *)
+        menu
+        ;;
 esac
-UMBRA_MANAGER
+XVPN_SCRIPT
 
-chmod +x "$BIN_FILE"
+chmod +x "$XVPN_BIN"
 
-case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
-  *)
-    export PATH="$BIN_DIR:$PATH"
-    if [ -f "${HOME}/.bashrc" ] && ! grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "${HOME}/.bashrc"; then
-      echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.bashrc"
+# ------------------------------------------------------------
+# ADD ~/.local/bin TO PATH
+# ------------------------------------------------------------
+
+if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
+    export PATH="${BIN_DIR}:$PATH"
+
+    if ! grep -qs 'HOME/.local/bin' "${HOME}/.bashrc" 2>/dev/null; then
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.bashrc"
     fi
-    ;;
-esac
+fi
 
-line
-echo "                  UMBRA GCP SHELL INSTALLER"
-line
-echo
-echo "Account : $ACCOUNT"
-echo "Project : $PROJECT_ID"
-echo "Region  : $REGION"
-echo "Service : $SERVICE_NAME"
-echo "Image   : $IMAGE"
-echo
-echo "This deploys your public Docker Hub image directly to Cloud Run."
-echo "No Docker pull/run on the Cloud Shell machine is used."
-echo
-line
-echo
+# ------------------------------------------------------------
+# RESULT
+# ------------------------------------------------------------
 
-"$BIN_FILE" deploy
+URL="$(gcloud run services describe "$SERVICE" \
+    --project "$PROJECT" \
+    --region "$REGION" \
+    --format='value(status.url)' \
+    2>/dev/null || true)"
+
+REVISION="$(gcloud run services describe "$SERVICE" \
+    --project "$PROJECT" \
+    --region "$REGION" \
+    --format='value(status.latestReadyRevisionName)' \
+    2>/dev/null || true)"
 
 echo
-echo "Umbra Cloud Run manager installed:"
+line
+echo "                    XVPN DEPLOYMENT COMPLETE"
+echo "                         by shinusterben"
+line
 echo
-echo "  umbra"
+printf " %-20s %s\n" "Project:" "$PROJECT"
+printf " %-20s %s\n" "Region:" "$REGION"
+printf " %-20s %s\n" "Service:" "$SERVICE"
+printf " %-20s %s\n" "Revision:" "${REVISION:--}"
+printf " %-20s %s\n" "Image:" "$IMAGE"
 echo
-echo "Useful commands:"
-echo "  umbra status"
-echo "  umbra links"
-echo "  umbra logs"
-echo "  umbra update"
+
+if [ -n "$URL" ]; then
+    echo "Website:"
+    echo "  ${URL}/"
+    echo
+    echo "XVPN Page:"
+    echo "  ${URL}/xvpn/shinu"
+    echo
+    echo "Subscription:"
+    echo "  ${URL}/sub/shinu"
+fi
+
 echo
+echo "XVPN manager:"
+echo
+echo "  xvpn"
+echo
+echo "Commands:"
+echo
+echo "  xvpn status"
+echo "  xvpn links"
+echo "  xvpn logs"
+echo "  xvpn update"
+echo
+line
+echo
+
+"$XVPN_BIN" status
