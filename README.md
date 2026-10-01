@@ -1,195 +1,149 @@
 # Umbra GCP Shell
 
-Simple shell installer and dashboard for running the Umbra Docker image:
+Deploy and manage the Umbra Docker image on **Google Cloud Run** directly from:
+
+- Google Cloud Shell
+- Google Cloud Console
+- Google Cloud Skills Boost / Qwiklabs Cloud Shell
+
+Docker image:
 
 ```text
 docker.io/noahclanman/gcp:latest
 ```
 
-This project installs Umbra as a Docker container and adds a shell command:
+This project is designed for:
 
-```bash
-umbra
-```
-
-The `umbra` command opens a dashboard/menu for server specs, container status, logs, updates, restart, stop/start, subscription links, and inbound paths.
-
----
-
-## Requirements
-
-You need:
-
-- Linux server / VPS / Google Cloud Shell VM
-- Docker installed
-- Internet connection
-- `curl` recommended
-
-Check Docker:
-
-```bash
-docker --version
-```
-
-Check Docker daemon:
-
-```bash
-docker info
+```text
+Google Cloud Shell
+        ↓
+Run install.sh
+        ↓
+Deploy Docker image
+        ↓
+Google Cloud Run
+        ↓
+Get *.run.app URL
+        ↓
+Use /sub/shinu
 ```
 
 ---
 
 ## Quick Install
 
-Run:
+Open **Google Cloud Shell** and run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/noahclanman/gcp-shell/main/install.sh | bash
 ```
 
-The installer will:
-
-- pull the latest Umbra Docker image
-- remove the old Umbra container if it exists
-- create a new Umbra container
-- expose port `8080`
-- install the `umbra` shell command
-- show the server dashboard after installation
-
----
-
-## Open Umbra Dashboard
-
-After installation:
-
-```bash
-umbra
-```
-
-The dashboard shows:
+The installer will ask for:
 
 ```text
-OS
-Kernel
-Architecture
-CPU / vCPU
-CPU model
-Memory usage
-Disk usage
-Load average
-Uptime
-Public IP
-Local IP
-
-Umbra container status
-Docker state
-Docker image
-Container start time
-Published ports
-Subscription URL
+Cloud Run service name
+Cloud Run region
 ```
 
----
-
-## Umbra Menu
-
-Run:
-
-```bash
-umbra
-```
-
-Menu:
+Example:
 
 ```text
-[1] Refresh dashboard
-[2] Subscription / inbound paths
-[3] Container resource usage
-[4] View live logs
-[5] Restart Umbra
-[6] Update Umbra
-[7] Stop Umbra
-[8] Start Umbra
-[9] Remove Umbra container
-[0] Exit
+Cloud Run service name [umbra]: erwan
+Cloud Run region [us-central1]: us-central1
 ```
 
----
-
-## Shell Commands
-
-Show dashboard:
-
-```bash
-umbra status
-```
-
-Show subscription and inbound paths:
-
-```bash
-umbra links
-```
-
-Show Docker resource usage:
-
-```bash
-umbra stats
-```
-
-View live logs:
-
-```bash
-umbra logs
-```
-
-Restart Umbra:
-
-```bash
-umbra restart
-```
-
-Update to the latest Docker image:
-
-```bash
-umbra update
-```
-
-Stop Umbra:
-
-```bash
-umbra stop
-```
-
-Start Umbra:
-
-```bash
-umbra start
-```
-
----
-
-## Default Umbra Configuration
-
-Default user:
+The installer then deploys:
 
 ```text
-ID: shinusterben
+docker.io/noahclanman/gcp:latest
+```
+
+to Google Cloud Run.
+
+---
+
+# Default Cloud Run Configuration
+
+The installer uses:
+
+```text
+Container image:      docker.io/noahclanman/gcp:latest
+Container port:       8080
+Memory:               512Mi
+CPU:                  1
+Concurrency:          500
+Max instances:        16
+Timeout:              3600 seconds
+Execution environment: Second Generation
+HTTP/2:               Enabled
+CPU Boost:            Enabled
+Public access:        Enabled
+```
+
+No Umbra environment variables are required for the default deployment.
+
+---
+
+# Default Umbra User
+
+```text
+ID:    shinusterben
 Alias: shinu
 ```
+
+The Docker image works immediately with these built-in defaults.
+
+---
+
+# Cloud Run URL
+
+After deployment, Google Cloud Run gives you a public URL.
+
+Example:
+
+```text
+https://erwan-xxxxxxxxxx-uc.a.run.app
+```
+
+Use the exact URL returned by Cloud Run.
+
+---
+
+# Subscription
 
 Default subscription:
 
 ```text
-http://YOUR_SERVER_IP:8080/sub/shinu
+https://YOUR-CLOUD-RUN-URL/sub/shinu
+```
+
+Example:
+
+```text
+https://erwan-xxxxxxxxxx-uc.a.run.app/sub/shinu
 ```
 
 Plain subscription:
 
 ```text
-http://YOUR_SERVER_IP:8080/sub/shinu/plain
+https://YOUR-CLOUD-RUN-URL/sub/shinu/plain
 ```
 
-Default inbound paths:
+Example:
+
+```text
+https://erwan-xxxxxxxxxx-uc.a.run.app/sub/shinu/plain
+```
+
+There is **no public `:8080`** in the Cloud Run URL.
+
+Port `8080` is only used internally by the Cloud Run container.
+
+---
+
+# Default Inbounds
+
+Umbra currently includes:
 
 ```text
 VLESS + XHTTP
@@ -210,147 +164,394 @@ VMess + WebSocket
 
 ---
 
-## Using Docker Directly
+# Umbra Cloud Shell Dashboard
 
-You do not have to use the shell installer.
+After installation, run:
 
-Docker image:
+```bash
+umbra
+```
+
+Example dashboard:
 
 ```text
-docker.io/noahclanman/gcp:latest
-```
+========================================================================
+                       UMBRA CLOUD RUN
+========================================================================
 
-Pull the image:
+Project:            qwiklabs-gcp-xxxxxxxx
+Region:             us-central1
+Service:            erwan
+Revision:           erwan-00001-xxx
 
-```bash
-docker pull noahclanman/gcp:latest
-```
+========================================================================
+                         CONTAINER
+========================================================================
 
-Run the container:
+Image:              docker.io/noahclanman/gcp:latest
+Port:               8080
+Memory:             512Mi
+CPU:                1
 
-```bash
-docker run -d \
-  --name umbra \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  noahclanman/gcp:latest
-```
+========================================================================
+                         CLOUD RUN
+========================================================================
 
-Check status:
+Concurrency:        500
+Max Instances:      16
+Timeout:            3600s
+Execution Env:      Second Generation
+HTTP/2:             Enabled
+Public Access:      Enabled
 
-```bash
-docker ps
-```
+========================================================================
+                          ACCESS
+========================================================================
 
-View logs:
+Cloud Run URL:
+https://erwan-xxxxxxxxxx-uc.a.run.app
 
-```bash
-docker logs -f umbra
-```
+Subscription:
+https://erwan-xxxxxxxxxx-uc.a.run.app/sub/shinu
 
-Restart:
-
-```bash
-docker restart umbra
-```
-
-Stop:
-
-```bash
-docker stop umbra
-```
-
-Start:
-
-```bash
-docker start umbra
-```
-
-Remove:
-
-```bash
-docker rm -f umbra
+Plain Subscription:
+https://erwan-xxxxxxxxxx-uc.a.run.app/sub/shinu/plain
 ```
 
 ---
 
-## Update Docker Image Manually
+# Umbra Menu
 
-Pull the latest version:
-
-```bash
-docker pull noahclanman/gcp:latest
-```
-
-Remove the current container:
+Run:
 
 ```bash
-docker rm -f umbra
+umbra
 ```
 
-Start the latest image:
+Menu:
+
+```text
+[1] Refresh dashboard
+[2] Show subscription / inbounds
+[3] Show Cloud Run logs
+[4] Redeploy latest Docker image
+[5] Change service name
+[6] Change region
+[7] Delete Cloud Run service
+[0] Exit
+```
+
+---
+
+# Umbra Commands
+
+Show Cloud Run dashboard:
 
 ```bash
-docker run -d \
-  --name umbra \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  noahclanman/gcp:latest
+umbra status
 ```
 
-Or simply use:
+Show subscription and inbound details:
+
+```bash
+umbra links
+```
+
+Show Cloud Run logs:
+
+```bash
+umbra logs
+```
+
+Redeploy the latest Docker image:
 
 ```bash
 umbra update
 ```
 
+Open the full menu:
+
+```bash
+umbra
+```
+
 ---
 
-## Custom Users
+# Docker Hub Image
 
-The Docker image works without adding variables.
+Umbra Docker image:
 
-Default:
+```text
+docker.io/noahclanman/gcp:latest
+```
+
+This is the same image used by the shell installer.
+
+---
+
+# Deploy Docker Image Manually from Cloud Shell
+
+You do not have to use `install.sh`.
+
+You can deploy the Docker image manually from Google Cloud Shell.
+
+Example:
+
+```bash
+gcloud run deploy umbra \
+  --image docker.io/noahclanman/gcp:latest \
+  --region us-central1 \
+  --platform managed \
+  --port 8080 \
+  --memory 512Mi \
+  --cpu 1 \
+  --concurrency 500 \
+  --max-instances 16 \
+  --timeout 3600 \
+  --execution-environment gen2 \
+  --use-http2 \
+  --allow-unauthenticated
+```
+
+After deployment, get the Cloud Run URL:
+
+```bash
+gcloud run services describe umbra \
+  --region us-central1 \
+  --format='value(status.url)'
+```
+
+Example result:
+
+```text
+https://umbra-xxxxxxxxxx-uc.a.run.app
+```
+
+Your subscription is then:
+
+```text
+https://umbra-xxxxxxxxxx-uc.a.run.app/sub/shinu
+```
+
+---
+
+# Deploy from Google Cloud Console
+
+You can also deploy the Docker image using the Google Cloud Console UI.
+
+Go to:
+
+```text
+Google Cloud Console
+→ Cloud Run
+→ Create Service / Deploy Container
+```
+
+Use this image:
+
+```text
+docker.io/noahclanman/gcp:latest
+```
+
+Container port:
+
+```text
+8080
+```
+
+Recommended settings:
+
+```text
+Memory:               512Mi
+CPU:                  1
+Concurrency:          500
+Max instances:        16
+Timeout:              3600 seconds
+Execution environment: Second Generation
+HTTP/2:               Enabled
+Public access:        Enabled
+```
+
+No environment variables are required for the default Umbra deployment.
+
+---
+
+# Google Cloud Skills Boost / Qwiklabs
+
+This project can also be used from a Google Cloud Skills Boost lab.
+
+Typical flow:
+
+```text
+1. Start the Google Cloud Skills Boost lab
+
+2. Open Google Cloud Console
+
+3. Open Cloud Shell
+
+4. Run:
+
+   curl -fsSL https://raw.githubusercontent.com/noahclanman/gcp-shell/main/install.sh | bash
+
+5. Choose your Cloud Run service name
+
+6. Choose your Cloud Run region
+
+7. Wait for deployment
+
+8. Copy the generated *.run.app URL
+
+9. Use:
+
+   https://YOUR-CLOUD-RUN-URL/sub/shinu
+```
+
+---
+
+# Check Current Google Cloud Project
+
+```bash
+gcloud config get-value project
+```
+
+---
+
+# List Cloud Run Services
+
+```bash
+gcloud run services list
+```
+
+---
+
+# Describe Cloud Run Service
+
+Example:
+
+```bash
+gcloud run services describe umbra \
+  --region us-central1
+```
+
+---
+
+# Get Cloud Run URL
+
+```bash
+gcloud run services describe umbra \
+  --region us-central1 \
+  --format='value(status.url)'
+```
+
+---
+
+# View Cloud Run Logs
+
+Using Umbra:
+
+```bash
+umbra logs
+```
+
+Or manually:
+
+```bash
+gcloud run services logs read umbra \
+  --region us-central1
+```
+
+---
+
+# Update Umbra
+
+The easiest method:
+
+```bash
+umbra update
+```
+
+This redeploys the latest:
+
+```text
+docker.io/noahclanman/gcp:latest
+```
+
+You can also redeploy manually:
+
+```bash
+gcloud run deploy umbra \
+  --image docker.io/noahclanman/gcp:latest \
+  --region us-central1
+```
+
+---
+
+# Delete Cloud Run Service
+
+Open the menu:
+
+```bash
+umbra
+```
+
+Then select:
+
+```text
+[7] Delete Cloud Run service
+```
+
+Or delete manually:
+
+```bash
+gcloud run services delete umbra \
+  --region us-central1
+```
+
+---
+
+# Custom Umbra User
+
+The Docker image already has:
 
 ```text
 shinusterben:shinu
 ```
 
-You can optionally override it:
+as the default.
 
-```bash
-docker run -d \
-  --name umbra \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -e USERS="myusername:myalias" \
-  noahclanman/gcp:latest
+You can optionally override it using:
+
+```text
+USERS=myusername:myalias
 ```
 
 Example:
 
 ```bash
-docker run -d \
-  --name umbra \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -e USERS="noah:noah" \
-  noahclanman/gcp:latest
+gcloud run deploy umbra \
+  --image docker.io/noahclanman/gcp:latest \
+  --region us-central1 \
+  --set-env-vars USERS="noah:noah" \
+  --allow-unauthenticated
 ```
 
-Subscription:
+The subscription becomes:
 
 ```text
-http://YOUR_SERVER_IP:8080/sub/noah
+https://YOUR-CLOUD-RUN-URL/sub/noah
 ```
 
-Multiple users:
+---
 
-```bash
--e USERS="shinusterben:shinu,noah:noah,user3:user3"
+# Multiple Users
+
+Example:
+
+```text
+USERS=shinusterben:shinu,noah:noah,user3:user3
 ```
 
-Each alias gets its own subscription:
+Subscriptions:
 
 ```text
 /sub/shinu
@@ -358,25 +559,15 @@ Each alias gets its own subscription:
 /sub/user3
 ```
 
+Each alias receives its own subscription.
+
 ---
 
-## Optional Environment Variables
+# Optional Environment Variables
 
-VMess and gRPC are enabled by default.
+The default deployment does not require environment variables.
 
-Example:
-
-```bash
-docker run -d \
-  --name umbra \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -e ENABLE_VMESS=1 \
-  -e ENABLE_GRPC=1 \
-  noahclanman/gcp:latest
-```
-
-Other optional settings:
+Optional settings:
 
 ```text
 USERS
@@ -389,86 +580,116 @@ TROJAN_PASSWORD
 SHOW_LINKS
 ```
 
+VMess and gRPC are enabled by default in the current Docker image.
+
 ---
 
-## Check Container Health
+# Check Umbra Homepage
+
+After deployment:
 
 ```bash
-docker inspect umbra
-```
-
-Quick HTTP test:
-
-```bash
-curl http://127.0.0.1:8080/
-```
-
-Subscription test:
-
-```bash
-curl http://127.0.0.1:8080/sub/shinu
-```
-
-Plain subscription:
-
-```bash
-curl http://127.0.0.1:8080/sub/shinu/plain
+curl https://YOUR-CLOUD-RUN-URL/
 ```
 
 ---
 
-## Firewall
-
-Make sure TCP port `8080` is allowed if you want to access Umbra directly from the internet.
-
-Example with UFW:
+# Test Subscription
 
 ```bash
-sudo ufw allow 8080/tcp
-```
-
-Check:
-
-```bash
-sudo ufw status
+curl https://YOUR-CLOUD-RUN-URL/sub/shinu
 ```
 
 ---
 
-## Repository
+# Test Plain Subscription
 
-Shell installer:
-
-```text
-https://github.com/noahclanman/gcp-shell
+```bash
+curl https://YOUR-CLOUD-RUN-URL/sub/shinu/plain
 ```
 
-Docker image:
+---
+
+# Important
+
+`gcp-shell` does **not** run Umbra permanently inside the temporary Cloud Shell machine.
+
+Cloud Shell is used to execute the deployment commands.
+
+The actual Docker image:
 
 ```text
 docker.io/noahclanman/gcp:latest
 ```
 
-Main Docker project:
+runs on:
+
+```text
+Google Cloud Run
+```
+
+and Google Cloud Run provides the public:
+
+```text
+*.run.app
+```
+
+URL.
+
+---
+
+# Repositories
+
+GCP Shell installer:
+
+```text
+https://github.com/noahclanman/gcp-shell
+```
+
+Main Umbra Docker project:
 
 ```text
 https://github.com/noahclanman/gcp
 ```
 
+Docker Hub image:
+
+```text
+docker.io/noahclanman/gcp:latest
+```
+
 ---
 
-## Quick Reference
+# Quick Reference
 
-Install:
+Install from Google Cloud Shell:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/noahclanman/gcp-shell/main/install.sh | bash
 ```
 
-Dashboard:
+Open dashboard:
 
 ```bash
 umbra
+```
+
+Show status:
+
+```bash
+umbra status
+```
+
+Show links:
+
+```bash
+umbra links
+```
+
+Show logs:
+
+```bash
+umbra logs
 ```
 
 Update:
@@ -477,14 +698,14 @@ Update:
 umbra update
 ```
 
-Logs:
-
-```bash
-umbra logs
-```
-
 Docker image:
 
 ```text
 docker.io/noahclanman/gcp:latest
+```
+
+Default subscription:
+
+```text
+https://YOUR-CLOUD-RUN-URL/sub/shinu
 ```
